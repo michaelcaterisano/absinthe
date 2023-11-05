@@ -7,7 +7,7 @@ defmodule Absinthe.Subscription.Local do
 
   alias Absinthe.Pipeline.BatchResolver
 
-  # This module handles running and broadcasting documents that are local to this
+  # This module handles running and broadcasting documents that are loccd al to this
   # node.
 
   @doc """
@@ -35,43 +35,46 @@ defmodule Absinthe.Subscription.Local do
   alias Absinthe.{Phase, Pipeline}
 
   defp run_docset(pubsub, docs_and_topics, mutation_result) do
-    for {topic, key_strategy, doc} <- docs_and_topics do
-      try do
-        pipeline =
-          doc.initial_phases
-          |> Pipeline.replace(
-            Phase.Telemetry,
-            {Phase.Telemetry, event: [:subscription, :publish, :start]}
-          )
-          |> Pipeline.without(Phase.Subscription.SubscribeSelf)
-          |> Pipeline.insert_before(
-            Phase.Document.Execution.Resolution,
-            {Phase.Document.OverrideRoot, root_value: mutation_result}
-          )
-          |> Pipeline.upto(Phase.Document.Execution.Resolution)
+    Task.async_stream(docs_and_topics, &do_run_docset(pubsub, &1, mutation_result))
+    |> Enum.to_list()
+  end
 
-        pipeline = [
-          pipeline,
-          [
-            result_phase(doc),
-            {Absinthe.Phase.Telemetry, event: [:subscription, :publish, :stop]}
-          ]
+  defp do_run_docset(pubsub, {topic, key_strategy, doc}, mutation_result) do
+    try do
+      pipeline =
+        doc.initial_phases
+        |> Pipeline.replace(
+          Phase.Telemetry,
+          {Phase.Telemetry, event: [:subscription, :publish, :start]}
+        )
+        |> Pipeline.without(Phase.Subscription.SubscribeSelf)
+        |> Pipeline.insert_before(
+          Phase.Document.Execution.Resolution,
+          {Phase.Document.OverrideRoot, root_value: mutation_result}
+        )
+        |> Pipeline.upto(Phase.Document.Execution.Resolution)
+
+      pipeline = [
+        pipeline,
+        [
+          result_phase(doc),
+          {Absinthe.Phase.Telemetry, event: [:subscription, :publish, :stop]}
         ]
+      ]
 
-        {:ok, %{result: data}, _} = Absinthe.Pipeline.run(doc.source, pipeline)
+      {:ok, %{result: data}, _} = Absinthe.Pipeline.run(doc.source, pipeline)
 
-        Logger.debug("""
-        Absinthe Subscription Publication
-        Field Topic: #{inspect(key_strategy)}
-        Subscription id: #{inspect(topic)}
-        Data: #{inspect(data)}
-        """)
+      Logger.debug("""
+      Absinthe Subscription Publication
+      Field Topic: #{inspect(key_strategy)}
+      Subscription id: #{inspect(topic)}
+      Data: #{inspect(data)}
+      """)
 
-        :ok = pubsub.publish_subscription(topic, data)
-      rescue
-        e ->
-          BatchResolver.pipeline_error(e, __STACKTRACE__)
-      end
+      :ok = pubsub.publish_subscription(topic, data)
+    rescue
+      e ->
+        BatchResolver.pipeline_error(e, __STACKTRACE__)
     end
   end
 
