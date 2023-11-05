@@ -7,7 +7,7 @@ defmodule Absinthe.Subscription.Local do
 
   alias Absinthe.Pipeline.BatchResolver
 
-  # This module handles running and broadcasting documents that are loccd al to this
+  # This module handles running and broadcasting documents that are local to this
   # node.
 
   @doc """
