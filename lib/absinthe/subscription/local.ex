@@ -3,12 +3,14 @@ defmodule Absinthe.Subscription.Local do
   This module handles broadcasting documents that are local to this node
   """
 
-  require Logger
-
-  alias Absinthe.Pipeline.BatchResolver
-
   # This module handles running and broadcasting documents that are local to this
   # node.
+
+  alias Absinthe.Phase
+  alias Absinthe.Pipeline
+  alias Absinthe.Pipeline.BatchResolver
+
+  require Logger
 
   @doc """
   Publish a mutation to the local node only.
@@ -27,34 +29,28 @@ defmodule Absinthe.Subscription.Local do
         {topic, key_strategy, doc}
       end
 
-    IO.inspect(length(docs_and_topics), label: "docs_and_topics")
-
     run_docset(pubsub, docs_and_topics, mutation_result)
 
     :ok
   end
 
-  alias Absinthe.{Phase, Pipeline}
-
   defp run_docset(pubsub, docs_and_topics, mutation_result) do
     run_docset(pubsub, docs_and_topics, mutation_result, %{})
   end
 
-  defp run_docset(pubsub, [], _, _memo), do: :ok
+  defp run_docset(_pubsub, [], _, _memo), do: :ok
 
   defp run_docset(pubsub, [{topic, _key_strategy, doc} | rest], mutation_result, memo) do
-    try do
-      {data, updated_memo} = resolve_doc(doc, mutation_result, memo)
-      :ok = pubsub.publish_subscription(topic, data)
-      run_docset(pubsub, rest, mutation_result, updated_memo)
-    rescue
-      e ->
-        BatchResolver.pipeline_error(e, __STACKTRACE__)
-    end
+    {data, updated_memo} = resolve_doc(topic, doc, mutation_result, memo)
+    :ok = pubsub.publish_subscription(topic, data)
+    run_docset(pubsub, rest, mutation_result, updated_memo)
+  rescue
+    e ->
+      BatchResolver.pipeline_error(e, __STACKTRACE__)
   end
 
-  defp resolve_doc(doc, mutation_result, memo) do
-    doc_key = get_doc_key(doc)
+  defp resolve_doc(topic, doc, mutation_result, memo) do
+    doc_key = get_doc_key(topic)
 
     case Map.get(memo, doc_key) do
       %{} = memoized_result ->
@@ -90,8 +86,8 @@ defmodule Absinthe.Subscription.Local do
     end
   end
 
-  defp get_doc_key(doc) do
-    doc.source
+  defp get_doc_key(topic) do
+    topic |> String.split(":") |> List.last()
   end
 
   defp get_docs(pubsub, field, mutation_result, topic: topic_fun)
@@ -109,7 +105,6 @@ defmodule Absinthe.Subscription.Local do
     |> Enum.map(&to_string/1)
     |> Enum.flat_map(&Absinthe.Subscription.get(pubsub, {field, &1}))
     |> Enum.filter(fn {topic, doc} ->
-      IO.inspect(topic, label: "topic")
       {topic, doc}
     end)
   end
