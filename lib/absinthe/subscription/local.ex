@@ -104,9 +104,6 @@ defmodule Absinthe.Subscription.Local do
     |> List.wrap()
     |> Enum.map(&to_string/1)
     |> Enum.flat_map(&Absinthe.Subscription.get(pubsub, {field, &1}))
-    |> Enum.filter(fn {topic, doc} ->
-      {topic, doc}
-    end)
   end
 
   defp result_phase(doc) do
