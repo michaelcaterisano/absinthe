@@ -138,7 +138,7 @@ defmodule Absinthe.Phase.Subscription.SubscribeSelf do
 
   defp get_subscription_id(config, blueprint, options) do
     context_id = get_context_id(config)
-    document_id = get_document_id(config, blueprint, options)
+    document_id = get_document_id(blueprint, options)
 
     "__absinthe__:doc:#{context_id}:#{document_id}"
   end
@@ -148,18 +148,12 @@ defmodule Absinthe.Phase.Subscription.SubscribeSelf do
     to_string(context_id)
   end
 
-  defp get_document_id(config, blueprint, options) do
-    case config[:document_id] do
-      nil ->
-        binary =
-          {blueprint.source || blueprint.input, options[:variables] || %{}}
-          |> :erlang.term_to_binary()
+  defp get_document_id(blueprint, options) do
+    binary =
+      {blueprint.source || blueprint.input, options[:variables] || %{}}
+      |> :erlang.term_to_binary()
 
-        :crypto.hash(:sha256, binary)
-        |> Base.encode16()
-
-      val ->
-        val
-    end
+    :crypto.hash(:sha256, binary)
+    |> Base.encode16()
   end
 end
