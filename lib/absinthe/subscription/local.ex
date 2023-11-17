@@ -29,24 +29,67 @@ defmodule Absinthe.Subscription.Local do
         {topic, key_strategy, doc}
       end
 
-    run_docset(pubsub, docs_and_topics, mutation_result)
+    if mutation_result[:private][:dedupe],
+      do: run_docset_dedupe(pubsub, docs_and_topics, mutation_result),
+      else: run_docset(pubsub, docs_and_topics, mutation_result)
 
     :ok
   end
 
-  defp run_docset(pubsub, docs_and_topics, mutation_result) do
-    run_docset(pubsub, docs_and_topics, mutation_result, %{})
+  defp run_docset_dedupe(pubsub, docs_and_topics, mutation_result) do
+    run_docset_dedupe(pubsub, docs_and_topics, mutation_result, %{})
   end
 
-  defp run_docset(_pubsub, [], _, _memo), do: :ok
+  defp run_docset_dedupe(_pubsub, [], _, _memo), do: :ok
 
-  defp run_docset(pubsub, [{topic, _key_strategy, doc} | rest], mutation_result, memo) do
+  defp run_docset_dedupe(pubsub, [{topic, _key_strategy, doc} | rest], mutation_result, memo) do
     {data, updated_memo} = resolve_doc(topic, doc, mutation_result, memo)
     :ok = pubsub.publish_subscription(topic, data)
-    run_docset(pubsub, rest, mutation_result, updated_memo)
+    run_docset_dedupe(pubsub, rest, mutation_result, updated_memo)
   rescue
     e ->
       BatchResolver.pipeline_error(e, __STACKTRACE__)
+  end
+
+  defp run_docset(pubsub, docs_and_topics, mutation_result) do
+    for {topic, key_strategy, doc} <- docs_and_topics do
+      try do
+        pipeline =
+          doc.initial_phases
+          |> Pipeline.replace(
+            Phase.Telemetry,
+            {Phase.Telemetry, event: [:subscription, :publish, :start]}
+          )
+          |> Pipeline.without(Phase.Subscription.SubscribeSelf)
+          |> Pipeline.insert_before(
+            Phase.Document.Execution.Resolution,
+            {Phase.Document.OverrideRoot, root_value: mutation_result}
+          )
+          |> Pipeline.upto(Phase.Document.Execution.Resolution)
+
+        pipeline = [
+          pipeline,
+          [
+            result_phase(doc),
+            {Absinthe.Phase.Telemetry, event: [:subscription, :publish, :stop]}
+          ]
+        ]
+
+        {:ok, %{result: data}, _} = Absinthe.Pipeline.run(doc.source, pipeline)
+
+        Logger.debug("""
+        Absinthe Subscription Publication
+        Field Topic: #{inspect(key_strategy)}
+        Subscription id: #{inspect(topic)}
+        Data: #{inspect(data)}
+        """)
+
+        :ok = pubsub.publish_subscription(topic, data)
+      rescue
+        e ->
+          BatchResolver.pipeline_error(e, __STACKTRACE__)
+      end
+    end
   end
 
   defp resolve_doc(topic, doc, mutation_result, memo) do
