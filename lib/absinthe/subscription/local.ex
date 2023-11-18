@@ -43,7 +43,7 @@ defmodule Absinthe.Subscription.Local do
   defp run_docset_dedupe(_pubsub, [], _, _memo), do: :ok
 
   defp run_docset_dedupe(pubsub, [{topic, _key_strategy, doc} | rest], mutation_result, memo) do
-    {data, updated_memo} = resolve_doc(topic, doc, mutation_result, memo)
+    {data, updated_memo} = resolve_doc(doc, mutation_result, memo)
     :ok = pubsub.publish_subscription(topic, data)
     run_docset_dedupe(pubsub, rest, mutation_result, updated_memo)
   rescue
@@ -92,8 +92,8 @@ defmodule Absinthe.Subscription.Local do
     end
   end
 
-  defp resolve_doc(topic, doc, mutation_result, memo) do
-    doc_key = get_doc_key(topic)
+  defp resolve_doc(doc, mutation_result, memo) do
+    doc_key = get_doc_key(doc)
 
     case Map.get(memo, doc_key) do
       %{} = memoized_result ->
@@ -129,8 +129,19 @@ defmodule Absinthe.Subscription.Local do
     end
   end
 
-  defp get_doc_key(topic) do
-    topic |> String.split(":") |> List.last()
+  defp get_doc_key(doc) do
+    variables =
+      Enum.flat_map(doc.initial_phases, fn phase ->
+        case phase do
+          {Absinthe.Phase.Document.Variables, opts} ->
+            opts[:variables]
+
+          _ ->
+            []
+        end
+      end)
+
+    :erlang.term_to_binary({doc.source, variables})
   end
 
   defp get_docs(pubsub, field, mutation_result, topic: topic_fun)
