@@ -29,7 +29,7 @@ defmodule Absinthe.Subscription.Local do
         {topic, key_strategy, doc}
       end
 
-    if mutation_result[:private][:dedupe],
+    if is_map(mutation_result) and mutation_result[:private][:dedupe],
       do: run_docset_dedupe(pubsub, docs_and_topics, mutation_result),
       else: run_docset(pubsub, docs_and_topics, mutation_result)
 
